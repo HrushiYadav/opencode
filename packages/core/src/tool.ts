@@ -278,14 +278,15 @@ const layer = Layer.effect(
       list: () => Effect.sync(() => Array.from(state.get().tools.values())),
       snapshot: Effect.fn("Tool.snapshot")((permissions, options) =>
         Effect.gen(function* () {
+          const rules = permissions ?? []
+          // Without Code Mode its tools would be unreachable, so expose them as direct tools instead.
+          const codeModeEnabled = !whollyDisabled("execute", rules)
+          const path = codeModeEnabled && options?.location !== undefined && (yield* flags.enabled("full_codemode"))
           const data = state.get()
           if (catalogData !== data) {
             catalogData = data
             catalogs.clear()
           }
-          const rules = permissions ?? []
-          // Without Code Mode its tools would be unreachable, so expose them as direct tools instead.
-          const codeModeEnabled = !whollyDisabled("execute", rules)
           const hidden = options?.tools?.hidden
           const promoted = options?.tools?.codemode
           const direct = new Map<string, Tool.Info>()
@@ -299,7 +300,6 @@ const layer = Layer.effect(
             }
             direct.set(name, tool)
           }
-          const path = codeModeEnabled && options?.location !== undefined && (yield* flags.enabled("full_codemode"))
           const codeMode = !codeModeEnabled
             ? undefined
             : (() => {
@@ -384,12 +384,14 @@ const layer = Layer.effect(
         const data = state.get()
         const allowed = new Set(input.tools)
         const tools = new Map(
-          Array.from(data.tools).filter(
-            ([name, tool]) =>
-              tool.options?.codemode !== false &&
-              allowed.has(CodeModeTool.qualifiedName(tool)) &&
-              !whollyDisabled(tool.options?.permission ?? name, input.permissions),
-          ),
+          Array.from(data.tools)
+            .filter(
+              ([name, tool]) =>
+                tool.options?.codemode !== false &&
+                allowed.has(CodeModeTool.qualifiedName(tool)) &&
+                !whollyDisabled(tool.options?.permission ?? name, input.permissions),
+            )
+            .map(([name, tool]) => [name, toCodeModeTool(tool)]),
         )
         const callSeq = yield* Ref.make(0)
         return yield* CodeModeTool.check(
